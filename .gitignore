@@ -6,6 +6,7 @@
 # Python
 __pycache__/
 *.py[cod]
+backend/data/raw_*
 
 # Virtual envs
 .venv/

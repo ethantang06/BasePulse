@@ -63,39 +63,61 @@ def _infer_anchor_from_prompt(prompt: str) -> tuple[float, float]:
 def _fallback_layout(prompt: str) -> None:
     lat, lon = _infer_anchor_from_prompt(prompt)
     create_base_perimeter.invoke({"center_lat": lat, "center_lon": lon, "radius_meters": 520})
-    define_zone.invoke(
-        {
-            "zone_name": "Command Zone",
-            "security_level": "high",
-            "coordinates_polygon": [[
-                [lon - 0.0014, lat - 0.0008],
-                [lon + 0.0012, lat - 0.0008],
-                [lon + 0.0012, lat + 0.0010],
-                [lon - 0.0014, lat + 0.0010],
-                [lon - 0.0014, lat - 0.0008],
-            ]],
-        }
-    )
-    place_facility.invoke(
-        {
-            "facility_name": "Fallback HQ",
-            "facility_type": "HQ",
-            "lat": lat + 0.0004,
-            "lon": lon + 0.0002,
-            "width_m": 45,
-            "height_m": 32,
-            "priority": "high",
-        }
-    )
-    place_power_asset.invoke(
-        {
-            "asset_name": "Fallback Generator",
-            "asset_kind": "generator",
-            "lat": lat - 0.0007,
-            "lon": lon - 0.0006,
-            "capacity_kw": 420,
-        }
-    )
+    zones = [
+        ("Command Zone", "high", 0.0000, 0.0002),
+        ("Operations Zone", "medium", -0.0014, 0.0004),
+        ("Support Zone", "low", 0.0014, -0.0003),
+    ]
+    for name, sec, x, y in zones:
+        define_zone.invoke(
+            {
+                "zone_name": name,
+                "security_level": sec,
+                "coordinates_polygon": [[
+                    [lon + x - 0.0008, lat + y - 0.0006],
+                    [lon + x + 0.0008, lat + y - 0.0006],
+                    [lon + x + 0.0008, lat + y + 0.0006],
+                    [lon + x - 0.0008, lat + y + 0.0006],
+                    [lon + x - 0.0008, lat + y - 0.0006],
+                ]],
+            }
+        )
+
+    facilities = [
+        ("Fallback HQ", "HQ", lat + 0.0004, lon + 0.0002, 45, 32, "high"),
+        ("Fallback Hospital", "hospital", lat - 0.0002, lon - 0.0005, 42, 30, "high"),
+        ("Fallback Barracks", "barracks", lat + 0.0010, lon - 0.0001, 52, 30, "medium"),
+        ("Fallback Hangar", "hangar", lat - 0.0009, lon + 0.0009, 56, 34, "medium"),
+    ]
+    for fname, ftype, flat, flon, w, h, p in facilities:
+        place_facility.invoke(
+            {
+                "facility_name": fname,
+                "facility_type": ftype,
+                "lat": flat,
+                "lon": flon,
+                "width_m": w,
+                "height_m": h,
+                "priority": p,
+            }
+        )
+
+    power_assets = [
+        ("Fallback Generator", "generator", lat - 0.0008, lon - 0.0010, 500),
+        ("Fallback Battery", "battery", lat - 0.0005, lon - 0.0004, 240),
+        ("Fallback Solar", "solar_array", lat + 0.0011, lon + 0.0010, 180),
+    ]
+    for aname, akind, alat, alon, cap in power_assets:
+        place_power_asset.invoke(
+            {
+                "asset_name": aname,
+                "asset_kind": akind,
+                "lat": alat,
+                "lon": alon,
+                "capacity_kw": cap,
+            }
+        )
+
     place_asset_cluster.invoke(
         {
             "asset_type": "supply_truck",
@@ -105,17 +127,55 @@ def _fallback_layout(prompt: str) -> None:
             "spacing": 7,
         }
     )
+
     define_route.invoke(
         {
             "route_name": "Fallback Main Route",
             "route_type": "road",
             "coordinates_line": [
-                [lon - 0.0018, lat - 0.0012],
-                [lon - 0.0005, lat - 0.0002],
+                [lon - 0.0016, lat - 0.0010],
+                [lon - 0.0004, lat - 0.0002],
                 [lon + 0.0006, lat + 0.0005],
-                [lon + 0.0018, lat + 0.0014],
+                [lon + 0.0016, lat + 0.0010],
             ],
             "lanes": 2,
+        }
+    )
+    define_route.invoke(
+        {
+            "route_name": "Fallback Patrol Route",
+            "route_type": "patrol_route",
+            "coordinates_line": [
+                [lon - 0.0018, lat - 0.0013],
+                [lon + 0.0018, lat - 0.0013],
+                [lon + 0.0018, lat + 0.0013],
+                [lon - 0.0018, lat + 0.0013],
+                [lon - 0.0018, lat - 0.0013],
+            ],
+            "lanes": 1,
+        }
+    )
+
+    connect_power_link.invoke(
+        {
+            "link_name": "Fallback Gen-Battery Link",
+            "from_lon": lon - 0.0010,
+            "from_lat": lat - 0.0008,
+            "to_lon": lon - 0.0004,
+            "to_lat": lat - 0.0005,
+            "voltage_kv": 13.8,
+            "link_role": "distribution",
+        }
+    )
+    connect_power_link.invoke(
+        {
+            "link_name": "Fallback Battery-HQ Link",
+            "from_lon": lon - 0.0004,
+            "from_lat": lat - 0.0005,
+            "to_lon": lon + 0.0002,
+            "to_lat": lat + 0.0004,
+            "voltage_kv": 13.8,
+            "link_role": "distribution",
         }
     )
 
@@ -338,3 +398,9 @@ async def process_military_data(prompt: str, data_dir, state_file) -> dict:
         _fallback_layout(prompt)
 
     return {"message": "Success", "result": "Layout generated."}
+
+
+def apply_fallback_layout(prompt: str, state_file) -> None:
+    global ACTIVE_STATE_FILE
+    ACTIVE_STATE_FILE = state_file
+    _fallback_layout(prompt)

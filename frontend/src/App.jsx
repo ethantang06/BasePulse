@@ -8,6 +8,7 @@ const API_BASE = 'http://localhost:8000';
 
 function App() {
   const [layoutState, setLayoutState] = useState(null);
+  const [analysis, setAnalysis] = useState(null);
   const [recenterSignal, setRecenterSignal] = useState(0);
   const [prompt, setPrompt] = useState(
     "Design a forward operating base with a 700m perimeter around 33.3, 44.2. Define high, medium, and low security zones. Place a command HQ, field hospital, barracks, and drone hangar as facilities. Add generator, battery, and solar power assets, connect them with power links, and create internal road/convoy routes."
@@ -15,6 +16,11 @@ function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('');
+  const [generationStatus, setGenerationStatus] = useState('');
+  const [scenarioPreset, setScenarioPreset] = useState('Grid Outage');
+  const [gridConnected, setGridConnected] = useState(false);
+  const [weatherStress, setWeatherStress] = useState(35);
+  const [threatStress, setThreatStress] = useState(30);
   const fileInputRef = useRef(null);
 
   const featureSummary = useMemo(() => {
@@ -28,43 +34,76 @@ function App() {
     return { total: features.length, ordered };
   }, [layoutState]);
 
-  const readiness = useMemo(() => {
-    const counts = Object.fromEntries(featureSummary.ordered);
-    const perimeter = counts.perimeter || 0;
-    const zones = counts.zone || 0;
-    const facilities = counts.facility || 0;
-    const powerAssets = counts.power_asset || 0;
-    const routes = counts.route || 0;
-    const powerLinks = counts.power_link || 0;
+  const validations = analysis?.validation?.checks || [];
 
-    const structureScore = Math.min(100, (
-      Math.min(perimeter, 1) * 18 +
-      Math.min(zones, 4) * 8 +
-      Math.min(facilities, 6) * 7 +
-      Math.min(powerAssets, 4) * 10 +
-      Math.min(routes, 4) * 8 +
-      Math.min(powerLinks, 4) * 8
-    ));
+  useEffect(() => {
+    if (scenarioPreset === 'Grid Outage') {
+      setGridConnected(false);
+      setWeatherStress(45);
+      setThreatStress(35);
+    } else if (scenarioPreset === 'Severe Weather') {
+      setGridConnected(false);
+      setWeatherStress(80);
+      setThreatStress(25);
+    } else if (scenarioPreset === 'Cyber-Physical Attack') {
+      setGridConnected(false);
+      setWeatherStress(30);
+      setThreatStress(85);
+    } else if (scenarioPreset === 'Normal Grid Ops') {
+      setGridConnected(true);
+      setWeatherStress(15);
+      setThreatStress(10);
+    }
+  }, [scenarioPreset]);
 
-    const criticalFacilityBonus = Math.min(15, facilities >= 4 ? 15 : facilities * 3);
-    const resilienceBonus = Math.min(12, Math.max(powerAssets, 0) + Math.max(powerLinks - 1, 0));
-    const score = Math.min(100, Math.round(structureScore + criticalFacilityBonus + resilienceBonus));
+  const scenarioAdjusted = useMemo(() => {
+    const sim = analysis?.simulation || {};
+    const baseCoverage = Number(sim.critical_coverage_pct || 0);
+    const baseAutonomy = Number(sim.fuel_autonomy_hours || 0);
+    const baseExposure = Number(sim.grid_dependency_exposure_pct || 0);
+    const redundancy = Number(sim.redundancy_pct || 0);
 
-    const level = score >= 85 ? 'Mission Ready' : score >= 65 ? 'Operationally Viable' : 'At Risk';
-    return { score, level };
-  }, [featureSummary]);
+    const weatherPenalty = weatherStress * 0.22;
+    const threatPenalty = threatStress * 0.2;
+    const outagePenalty = gridConnected ? 0 : 12;
+    const coverage = Math.max(0, Math.min(100, baseCoverage - weatherPenalty - threatPenalty * 0.25));
+    const autonomy = Math.max(0, baseAutonomy - weatherStress * 0.08 - threatStress * 0.04);
+    const exposure = Math.max(
+      0,
+      Math.min(100, (gridConnected ? baseExposure * 0.45 : baseExposure + outagePenalty + threatStress * 0.1))
+    );
+    const scoreRaw =
+      0.4 * coverage +
+      0.25 * Math.min(100, (autonomy / 72) * 100) +
+      0.2 * redundancy +
+      0.15 * (100 - exposure);
+    const score = Math.max(0, Math.min(100, scoreRaw));
 
-  const validations = useMemo(() => {
-    const counts = Object.fromEntries(featureSummary.ordered);
-    return [
-      { label: 'Base perimeter present', ok: (counts.perimeter || 0) >= 1 },
-      { label: 'At least 3 zones', ok: (counts.zone || 0) >= 3 },
-      { label: 'At least 4 facilities', ok: (counts.facility || 0) >= 4 },
-      { label: 'At least 2 power assets', ok: (counts.power_asset || 0) >= 2 },
-      { label: 'At least 2 routes', ok: (counts.route || 0) >= 2 },
-      { label: 'At least 2 power links', ok: (counts.power_link || 0) >= 2 },
-    ];
-  }, [featureSummary]);
+    const label = score >= 85 ? 'Mission Ready' : score >= 65 ? 'Operationally Viable' : 'At Risk';
+    return { coverage, autonomy, exposure, redundancy, score, label };
+  }, [analysis, gridConnected, weatherStress, threatStress]);
+
+  const riskFactors = useMemo(() => {
+    const risks = [];
+    if (!gridConnected) {
+      risks.push({ title: 'Commercial Grid Outage', score: Math.round(scenarioAdjusted.exposure), detail: 'Islanded operations active.' });
+    }
+    if (scenarioAdjusted.autonomy < 24) {
+      risks.push({ title: 'Low Fuel/Battery Autonomy', score: Math.round(100 - (scenarioAdjusted.autonomy / 24) * 100), detail: `Autonomy only ${scenarioAdjusted.autonomy.toFixed(1)}h.` });
+    }
+    if (scenarioAdjusted.coverage < 90) {
+      risks.push({ title: 'Critical Load Coverage Gap', score: Math.round(100 - scenarioAdjusted.coverage), detail: `${scenarioAdjusted.coverage.toFixed(1)}% critical coverage.` });
+    }
+    if (scenarioAdjusted.redundancy < 60) {
+      risks.push({ title: 'Insufficient Redundancy', score: Math.round(100 - scenarioAdjusted.redundancy), detail: `${scenarioAdjusted.redundancy.toFixed(1)}% redundant critical assets.` });
+    }
+    for (const v of validations) {
+      if (!v.ok) {
+        risks.push({ title: `Validation Failure: ${v.label}`, score: 80, detail: 'Deterministic constraint violation.' });
+      }
+    }
+    return risks.sort((a, b) => b.score - a.score).slice(0, 5);
+  }, [gridConnected, scenarioAdjusted, validations]);
 
   // Poll for state updates every 2 seconds
   useEffect(() => {
@@ -72,6 +111,8 @@ function App() {
       try {
         const res = await axios.get(`${API_BASE}/state`);
         setLayoutState(res.data);
+        const a = await axios.get(`${API_BASE}/analysis`);
+        setAnalysis(a.data);
       } catch (err) {
         console.error("Error fetching state:", err);
       }
@@ -105,14 +146,24 @@ function App() {
 
   const handleGenerate = async () => {
     setIsGenerating(true);
+    setGenerationStatus('');
     try {
-      await axios.post(`${API_BASE}/generate`, { prompt });
+      const g = await axios.post(`${API_BASE}/generate`, { prompt });
+      setGenerationStatus(g?.data?.message || 'Layout generated.');
       const res = await axios.get(`${API_BASE}/state`);
       setLayoutState(res.data);
+      const a = await axios.get(`${API_BASE}/analysis`);
+      setAnalysis(a.data);
       setRecenterSignal(v => v + 1);
     } catch (err) {
       console.error("Generation failed:", err);
-      alert("AI Generation failed. Check backend logs.");
+      const msg = err?.response?.data?.detail;
+      if (msg?.failed_checks) {
+        alert(`Generation rejected by validation:\n- ${msg.failed_checks.join('\n- ')}`);
+      } else {
+        alert("AI Generation failed. Check backend logs.");
+      }
+      setGenerationStatus('Generation failed.');
     } finally {
       setIsGenerating(false);
     }
@@ -123,6 +174,8 @@ function App() {
       await axios.post(`${API_BASE}/reset`);
       const res = await axios.get(`${API_BASE}/state`);
       setLayoutState(res.data);
+      const a = await axios.get(`${API_BASE}/analysis`);
+      setAnalysis(a.data);
       setRecenterSignal(v => v + 1);
     } catch (err) {
       console.error(err);
@@ -135,7 +188,7 @@ function App() {
       <div className="control-panel glass-panel">
         <div className="header">
           <Layers className="icon brand" />
-          <h1>Nexus AI Orchestrator</h1>
+          <h1>BasePulse</h1>
         </div>
 
         <div className="section">
@@ -157,6 +210,36 @@ function App() {
             {isUploading ? 'Uploading...' : 'Upload Data File'}
           </button>
           {uploadStatus && <div className="status-text">{uploadStatus}</div>}
+        </div>
+
+        <div className="section">
+          <h3>Scenario Stress Test</h3>
+          <p className="subtitle">Apply disruption assumptions without regenerating geometry.</p>
+          <select
+            value={scenarioPreset}
+            onChange={(e) => setScenarioPreset(e.target.value)}
+            className="prompt-input"
+            style={{ minHeight: 'auto', marginBottom: '10px' }}
+          >
+            <option>Grid Outage</option>
+            <option>Severe Weather</option>
+            <option>Cyber-Physical Attack</option>
+            <option>Normal Grid Ops</option>
+          </select>
+          <label className="stat-row">
+            <span>Commercial Grid Connected</span>
+            <input type="checkbox" checked={gridConnected} onChange={(e) => setGridConnected(e.target.checked)} />
+          </label>
+          <label className="stat-row">
+            <span>Weather Stress</span>
+            <span>{weatherStress}%</span>
+          </label>
+          <input type="range" min="0" max="100" value={weatherStress} onChange={(e) => setWeatherStress(Number(e.target.value))} />
+          <label className="stat-row">
+            <span>Threat Stress</span>
+            <span>{threatStress}%</span>
+          </label>
+          <input type="range" min="0" max="100" value={threatStress} onChange={(e) => setThreatStress(Number(e.target.value))} />
         </div>
 
         <div className="section">
@@ -183,15 +266,16 @@ function App() {
               Reset Map
             </button>
           </div>
+          {generationStatus && <div className="status-text">{generationStatus}</div>}
         </div>
 
         <div className="section stats">
           <h3>Readiness</h3>
           <div className="readiness-card">
-            <div className="readiness-score">{readiness.score}%</div>
-            <div className="readiness-label">{readiness.level}</div>
+            <div className="readiness-score">{scenarioAdjusted.score.toFixed(1)}%</div>
+            <div className="readiness-label">{scenarioAdjusted.label}</div>
             <div className="readiness-track">
-              <div className="readiness-fill" style={{ width: `${readiness.score}%` }} />
+              <div className="readiness-fill" style={{ width: `${scenarioAdjusted.score}%` }} />
             </div>
           </div>
         </div>
@@ -200,13 +284,49 @@ function App() {
           <h3>Validation Panel</h3>
           <div className="validation-list">
             {validations.map((item) => (
-              <div className="validation-row" key={item.label}>
+              <div className="validation-row" key={item.id || item.label}>
                 <span className={item.ok ? 'validation-pass' : 'validation-fail'}>
                   {item.ok ? 'PASS' : 'FAIL'}
                 </span>
                 <span>{item.label}</span>
               </div>
             ))}
+          </div>
+        </div>
+
+        <div className="section stats">
+          <h3>Top Risk Factors</h3>
+          <div className="validation-list">
+            {riskFactors.length === 0 ? (
+              <div className="breakdown-empty">No major risks detected.</div>
+            ) : (
+              riskFactors.map((r) => (
+                <div className="validation-row" key={r.title}>
+                  <span className="validation-fail">{r.score}</span>
+                  <span>{r.title}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="section stats">
+          <h3>72h Simulation</h3>
+          <div className="stat-row">
+            <span>Critical Coverage:</span>
+            <span className="accent">{scenarioAdjusted.coverage.toFixed(1)}%</span>
+          </div>
+          <div className="stat-row">
+            <span>Fuel Autonomy:</span>
+            <span className="accent">{scenarioAdjusted.autonomy.toFixed(1)}h</span>
+          </div>
+          <div className="stat-row">
+            <span>Grid Exposure:</span>
+            <span className="accent">{scenarioAdjusted.exposure.toFixed(1)}%</span>
+          </div>
+          <div className="stat-row">
+            <span>Critical Load:</span>
+            <span className="accent">{analysis?.simulation?.critical_load_kw ?? 0} kW</span>
           </div>
         </div>
 
