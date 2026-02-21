@@ -93,7 +93,7 @@ async def process_military_data(prompt: str, data_dir, state_file) -> dict:
             context_data += f"\n--- Data from {path.name} ---\n{f.read(2000)}" # Limit for context
             
     # 2. Set up the LLM and Tools
-    llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", temperature=0)
+    llm = ChatAnthropic(model="claude-sonnet-4-5", temperature=0)
     tools = [create_base_perimeter, place_asset_cluster, define_zone]
     llm_with_tools = llm.bind_tools(tools)
     
