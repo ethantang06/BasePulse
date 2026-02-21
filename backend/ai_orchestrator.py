@@ -1,7 +1,9 @@
 import json
+import math
 from langchain_core.tools import tool
+from langchain_core.messages import ToolMessage
 from langchain_anthropic import ChatAnthropic
-from pathlib import Path
+import os
 
 # Use a global or passed state reference for the hackathon speed
 ACTIVE_STATE_FILE = None
@@ -16,6 +18,19 @@ def append_to_state(feature: dict):
     
     with open(ACTIVE_STATE_FILE, "w") as f:
         json.dump(state, f)
+
+
+def _rect_polygon(lat: float, lon: float, width_m: float, height_m: float):
+    d_lat = (height_m / 2.0) / 111000.0
+    d_lon = (width_m / 2.0) / (111000.0 * max(0.2, abs(math.cos(math.radians(lat)))))
+    ring = [
+        [lon - d_lon, lat - d_lat],
+        [lon + d_lon, lat - d_lat],
+        [lon + d_lon, lat + d_lat],
+        [lon - d_lon, lat + d_lat],
+        [lon - d_lon, lat - d_lat],
+    ]
+    return [ring]
 
 @tool
 def create_base_perimeter(center_lat: float, center_lon: float, radius_meters: float) -> str:
@@ -82,6 +97,92 @@ def define_zone(zone_name: str, security_level: str, coordinates_polygon: list) 
     append_to_state(feature)
     return f"Successfully defined zone: {zone_name}."
 
+
+@tool
+def place_facility(
+    facility_name: str,
+    facility_type: str,
+    lat: float,
+    lon: float,
+    width_m: float,
+    height_m: float,
+    priority: str = "medium",
+) -> str:
+    """Places a rectangular facility footprint such as HQ, hospital, barracks, hangar, warehouse, or substation building."""
+    feature = {
+        "type": "Feature",
+        "geometry": {"type": "Polygon", "coordinates": _rect_polygon(lat, lon, width_m, height_m)},
+        "properties": {
+            "type": "facility",
+            "name": facility_name,
+            "facility_type": facility_type,
+            "priority": priority,
+            "width_m": width_m,
+            "height_m": height_m,
+        },
+    }
+    append_to_state(feature)
+    return f"Successfully placed facility {facility_name}."
+
+
+@tool
+def place_power_asset(asset_name: str, asset_kind: str, lat: float, lon: float, capacity_kw: float) -> str:
+    """Places a power asset point (generator, battery, solar_array, substation, transformer)."""
+    feature = {
+        "type": "Feature",
+        "geometry": {"type": "Point", "coordinates": [lon, lat]},
+        "properties": {
+            "type": "power_asset",
+            "name": asset_name,
+            "asset_kind": asset_kind,
+            "capacity_kw": capacity_kw,
+        },
+    }
+    append_to_state(feature)
+    return f"Successfully placed power asset {asset_name}."
+
+
+@tool
+def define_route(route_name: str, route_type: str, coordinates_line: list, lanes: int = 1) -> str:
+    """Creates a line route such as road, patrol_route, convoy_path, utility_corridor using coordinates [[lon,lat], ...]."""
+    feature = {
+        "type": "Feature",
+        "geometry": {"type": "LineString", "coordinates": coordinates_line},
+        "properties": {
+            "type": "route",
+            "name": route_name,
+            "route_type": route_type,
+            "lanes": lanes,
+        },
+    }
+    append_to_state(feature)
+    return f"Successfully defined route {route_name}."
+
+
+@tool
+def connect_power_link(
+    link_name: str,
+    from_lon: float,
+    from_lat: float,
+    to_lon: float,
+    to_lat: float,
+    voltage_kv: float = 13.8,
+    link_role: str = "distribution",
+) -> str:
+    """Creates a power line connection between two points or assets."""
+    feature = {
+        "type": "Feature",
+        "geometry": {"type": "LineString", "coordinates": [[from_lon, from_lat], [to_lon, to_lat]]},
+        "properties": {
+            "type": "power_link",
+            "name": link_name,
+            "voltage_kv": voltage_kv,
+            "link_role": link_role,
+        },
+    }
+    append_to_state(feature)
+    return f"Successfully connected power link {link_name}."
+
 async def process_military_data(prompt: str, data_dir, state_file) -> dict:
     global ACTIVE_STATE_FILE
     ACTIVE_STATE_FILE = state_file
@@ -93,8 +194,16 @@ async def process_military_data(prompt: str, data_dir, state_file) -> dict:
             context_data += f"\n--- Data from {path.name} ---\n{f.read(2000)}" # Limit for context
             
     # 2. Set up the LLM and Tools
-    llm = ChatAnthropic(model="claude-sonnet-4-5", temperature=0)
-    tools = [create_base_perimeter, place_asset_cluster, define_zone]
+    llm = ChatAnthropic(model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5"), temperature=0)
+    tools = [
+        create_base_perimeter,
+        define_zone,
+        place_facility,
+        place_asset_cluster,
+        place_power_asset,
+        define_route,
+        connect_power_link,
+    ]
     llm_with_tools = llm.bind_tools(tools)
     
     tool_map = {t.name: t for t in tools}
@@ -102,29 +211,36 @@ async def process_military_data(prompt: str, data_dir, state_file) -> dict:
     messages = [
         ("system", "You are a military logistics and base-planning AI. "
                    "Your task is to orchestrate a spatial layout based on the raw data/brief provided. "
-                   "Use the provided tools to construct perimeters, zones, and asset clusters. "
                    "You MUST use tools to define the layout. "
                    "Any data you generate via tools will be appended to the visualization state. "
+                   "Use a richer schema where practical: perimeter, zones, facilities, asset clusters, power assets, routes, and power links. "
+                   "Target at least: 1 perimeter, 3 zones, 4 facilities, 2 power assets, 2 routes, and 2 power links. "
                    "Be pragmatic and realistic in your placements. If coordinates are not provided, choose a target coordinate (e.g., 33.3, 44.2) and build around it.\n\n"
                    f"Context Data:\n{context_data}"),
         ("user", prompt)
     ]
     
-    # Simple agent loop for 1 step (hackathon proxy)
+    # Multi-step tool loop so the model can build complete plans.
     try:
-        res = llm_with_tools.invoke(messages)
+        for _ in range(6):
+            res = llm_with_tools.invoke(messages)
+            messages.append(res)
+            if not res.tool_calls:
+                break
+            for tool_call in res.tool_calls:
+                tool_name = tool_call["name"]
+                tool_args = tool_call["args"]
+                tool_call_id = tool_call["id"]
+                if tool_name in tool_map:
+                    try:
+                        result_text = tool_map[tool_name].invoke(tool_args)
+                        messages.append(ToolMessage(content=str(result_text), tool_call_id=tool_call_id))
+                    except Exception as e:
+                        messages.append(
+                            ToolMessage(content=f"Tool {tool_name} failed: {e}", tool_call_id=tool_call_id)
+                        )
     except Exception as e:
         # If Anthropic rejects the key or returns a 404/401, surface it cleanly.
         raise Exception(f"AI Generation Failed. Please check your Anthropic API Key. Details: {str(e)}")
-        
-    if res.tool_calls:
-        for tool_call in res.tool_calls:
-            tool_name = tool_call["name"]
-            tool_args = tool_call["args"]
-            if tool_name in tool_map:
-                try:
-                    tool_map[tool_name].invoke(tool_args)
-                except Exception as e:
-                    print(f"Tool {tool_name} failed: {e}")
                     
     return {"message": "Success", "result": "Layout generated."}

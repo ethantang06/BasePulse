@@ -8,7 +8,9 @@ const API_BASE = 'http://localhost:8000';
 
 function App() {
   const [layoutState, setLayoutState] = useState(null);
-  const [prompt, setPrompt] = useState("Design a forward operating base with a 500m perimeter. Include a command zone in the center, and a logistics cluster of 50 supply trucks nearby.");
+  const [prompt, setPrompt] = useState(
+    "Design a forward operating base with a 700m perimeter around 33.3, 44.2. Define high, medium, and low security zones. Place a command HQ, field hospital, barracks, and drone hangar as facilities. Add generator, battery, and solar power assets, connect them with power links, and create internal road/convoy routes."
+  );
   const [isGenerating, setIsGenerating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('');
