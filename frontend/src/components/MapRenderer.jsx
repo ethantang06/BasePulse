@@ -14,7 +14,7 @@ const INITIAL_VIEW_STATE = {
   bearing: 0
 };
 
-export default function MapRenderer({ data }) {
+export default function MapRenderer({ data, recenterSignal = 0 }) {
   const [viewState, setViewState] = useState(INITIAL_VIEW_STATE);
   const hasAutoCentered = useRef(false);
 
@@ -58,6 +58,12 @@ export default function MapRenderer({ data }) {
       setViewState(v => ({ ...v, longitude: lon, latitude: lat, transitionDuration: 700 }));
     }
   };
+
+  useEffect(() => {
+    if (recenterSignal <= 0) return;
+    hasAutoCentered.current = false;
+    recenterToData();
+  }, [recenterSignal]);
 
   const perimeterAndZones = data?.features?.filter(
     f => f?.properties?.type === 'perimeter' || f?.properties?.type === 'zone'

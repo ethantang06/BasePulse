@@ -8,6 +8,7 @@ const API_BASE = 'http://localhost:8000';
 
 function App() {
   const [layoutState, setLayoutState] = useState(null);
+  const [recenterSignal, setRecenterSignal] = useState(0);
   const [prompt, setPrompt] = useState(
     "Design a forward operating base with a 700m perimeter around 33.3, 44.2. Define high, medium, and low security zones. Place a command HQ, field hospital, barracks, and drone hangar as facilities. Add generator, battery, and solar power assets, connect them with power links, and create internal road/convoy routes."
   );
@@ -106,6 +107,9 @@ function App() {
     setIsGenerating(true);
     try {
       await axios.post(`${API_BASE}/generate`, { prompt });
+      const res = await axios.get(`${API_BASE}/state`);
+      setLayoutState(res.data);
+      setRecenterSignal(v => v + 1);
     } catch (err) {
       console.error("Generation failed:", err);
       alert("AI Generation failed. Check backend logs.");
@@ -117,7 +121,9 @@ function App() {
   const handleReset = async () => {
     try {
       await axios.post(`${API_BASE}/reset`);
-      setLayoutState(null);
+      const res = await axios.get(`${API_BASE}/state`);
+      setLayoutState(res.data);
+      setRecenterSignal(v => v + 1);
     } catch (err) {
       console.error(err);
     }
@@ -240,7 +246,7 @@ function App() {
       {/* Map Rendering Area */}
       <div className="map-container">
         {layoutState ? (
-          <MapRenderer data={layoutState} />
+          <MapRenderer data={layoutState} recenterSignal={recenterSignal} />
         ) : (
           <div className="loading-map">Initializing Engine...</div>
         )}

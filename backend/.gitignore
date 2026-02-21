@@ -2,3 +2,6 @@
 __pycache__/
 data/visualization_state.json
 data/raw_*
+.env
+.env.*
+!.env.example
