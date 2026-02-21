@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import MapRenderer from './components/MapRenderer';
 import { Upload, Play, RefreshCw, Layers } from 'lucide-react';
@@ -15,6 +15,55 @@ function App() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('');
   const fileInputRef = useRef(null);
+
+  const featureSummary = useMemo(() => {
+    const features = layoutState?.features || [];
+    const counts = {};
+    for (const f of features) {
+      const t = f?.properties?.type || 'unknown';
+      counts[t] = (counts[t] || 0) + 1;
+    }
+    const ordered = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    return { total: features.length, ordered };
+  }, [layoutState]);
+
+  const readiness = useMemo(() => {
+    const counts = Object.fromEntries(featureSummary.ordered);
+    const perimeter = counts.perimeter || 0;
+    const zones = counts.zone || 0;
+    const facilities = counts.facility || 0;
+    const powerAssets = counts.power_asset || 0;
+    const routes = counts.route || 0;
+    const powerLinks = counts.power_link || 0;
+
+    const structureScore = Math.min(100, (
+      Math.min(perimeter, 1) * 18 +
+      Math.min(zones, 4) * 8 +
+      Math.min(facilities, 6) * 7 +
+      Math.min(powerAssets, 4) * 10 +
+      Math.min(routes, 4) * 8 +
+      Math.min(powerLinks, 4) * 8
+    ));
+
+    const criticalFacilityBonus = Math.min(15, facilities >= 4 ? 15 : facilities * 3);
+    const resilienceBonus = Math.min(12, Math.max(powerAssets, 0) + Math.max(powerLinks - 1, 0));
+    const score = Math.min(100, Math.round(structureScore + criticalFacilityBonus + resilienceBonus));
+
+    const level = score >= 85 ? 'Mission Ready' : score >= 65 ? 'Operationally Viable' : 'At Risk';
+    return { score, level };
+  }, [featureSummary]);
+
+  const validations = useMemo(() => {
+    const counts = Object.fromEntries(featureSummary.ordered);
+    return [
+      { label: 'Base perimeter present', ok: (counts.perimeter || 0) >= 1 },
+      { label: 'At least 3 zones', ok: (counts.zone || 0) >= 3 },
+      { label: 'At least 4 facilities', ok: (counts.facility || 0) >= 4 },
+      { label: 'At least 2 power assets', ok: (counts.power_asset || 0) >= 2 },
+      { label: 'At least 2 routes', ok: (counts.route || 0) >= 2 },
+      { label: 'At least 2 power links', ok: (counts.power_link || 0) >= 2 },
+    ];
+  }, [featureSummary]);
 
   // Poll for state updates every 2 seconds
   useEffect(() => {
@@ -131,14 +180,59 @@ function App() {
         </div>
 
         <div className="section stats">
+          <h3>Readiness</h3>
+          <div className="readiness-card">
+            <div className="readiness-score">{readiness.score}%</div>
+            <div className="readiness-label">{readiness.level}</div>
+            <div className="readiness-track">
+              <div className="readiness-fill" style={{ width: `${readiness.score}%` }} />
+            </div>
+          </div>
+        </div>
+
+        <div className="section stats">
+          <h3>Validation Panel</h3>
+          <div className="validation-list">
+            {validations.map((item) => (
+              <div className="validation-row" key={item.label}>
+                <span className={item.ok ? 'validation-pass' : 'validation-fail'}>
+                  {item.ok ? 'PASS' : 'FAIL'}
+                </span>
+                <span>{item.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="section stats">
           <h3>Live View State</h3>
           <div className="stat-row">
             <span>Features Rendered:</span>
-            <span className="accent">{layoutState?.features?.length || 0}</span>
+            <span className="accent">{featureSummary.total}</span>
           </div>
           <div className="stat-row">
             <span>Last Sync:</span>
             <span>{new Date().toLocaleTimeString()}</span>
+          </div>
+          <div className="feature-breakdown">
+            {featureSummary.ordered.length === 0 ? (
+              <div className="breakdown-empty">No features yet</div>
+            ) : (
+              featureSummary.ordered.map(([type, count]) => {
+                const width = Math.max(8, Math.round((count / featureSummary.total) * 100));
+                return (
+                  <div key={type} className="breakdown-row">
+                    <div className="breakdown-label">
+                      <span>{type}</span>
+                      <span>{count}</span>
+                    </div>
+                    <div className="breakdown-bar-track">
+                      <div className="breakdown-bar-fill" style={{ width: `${width}%` }} />
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       </div>

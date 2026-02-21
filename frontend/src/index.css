@@ -213,6 +213,117 @@ h3 {
   font-weight: 600;
 }
 
+.readiness-card {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.readiness-score {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #e6f7ff;
+}
+
+.readiness-label {
+  margin-top: 2px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.readiness-track {
+  margin-top: 10px;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.22);
+  overflow: hidden;
+}
+
+.readiness-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #00d2ff, #00f5a0);
+}
+
+.validation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.validation-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.84rem;
+  color: #cfdbef;
+}
+
+.validation-pass,
+.validation-fail {
+  min-width: 38px;
+  text-align: center;
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.validation-pass {
+  background: rgba(0, 210, 120, 0.22);
+  color: #48ffbe;
+  border: 1px solid rgba(72, 255, 190, 0.4);
+}
+
+.validation-fail {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ff8888;
+  border: 1px solid rgba(255, 136, 136, 0.35);
+}
+
+.feature-breakdown {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.breakdown-empty {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.breakdown-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.breakdown-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: #c6d1e8;
+  text-transform: capitalize;
+}
+
+.breakdown-bar-track {
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
+  overflow: hidden;
+}
+
+.breakdown-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #00b4ff, #2ef0c7);
+}
+
 .map-container {
   flex: 1;
   position: relative;

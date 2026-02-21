@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import DeckGL from '@deck.gl/react';
 import { Map } from 'react-map-gl/maplibre';
 import { GeoJsonLayer, ScatterplotLayer, PathLayer, TextLayer } from '@deck.gl/layers';
@@ -16,10 +16,17 @@ const INITIAL_VIEW_STATE = {
 
 export default function MapRenderer({ data }) {
   const [viewState, setViewState] = useState(INITIAL_VIEW_STATE);
+  const hasAutoCentered = useRef(false);
 
-  // Auto-center map to the first feature when data loads/changes
+  // Auto-center only once when first non-empty data arrives.
   useEffect(() => {
-    if (data && data.features && data.features.length > 0) {
+    const features = data?.features || [];
+    if (!features.length) {
+      hasAutoCentered.current = false;
+      return;
+    }
+
+    if (!hasAutoCentered.current) {
       const firstFeature = data.features[0];
       let lon, lat;
       
@@ -30,10 +37,27 @@ export default function MapRenderer({ data }) {
       }
       
       if (lon && lat) {
-        setViewState(v => ({...v, longitude: lon, latitude: lat, transitionDuration: 1000}));
+        setViewState(v => ({ ...v, longitude: lon, latitude: lat, transitionDuration: 900 }));
+        hasAutoCentered.current = true;
       }
     }
-  }, [data]);
+  }, [data?.features?.length]);
+
+  const recenterToData = () => {
+    const firstFeature = data?.features?.[0];
+    if (!firstFeature) return;
+    let lon, lat;
+    if (firstFeature.geometry.type === 'Point') {
+      [lon, lat] = firstFeature.geometry.coordinates;
+    } else if (firstFeature.geometry.type === 'Polygon') {
+      [lon, lat] = firstFeature.geometry.coordinates[0][0];
+    } else if (firstFeature.geometry.type === 'LineString') {
+      [lon, lat] = firstFeature.geometry.coordinates[0];
+    }
+    if (lon && lat) {
+      setViewState(v => ({ ...v, longitude: lon, latitude: lat, transitionDuration: 700 }));
+    }
+  };
 
   const perimeterAndZones = data?.features?.filter(
     f => f?.properties?.type === 'perimeter' || f?.properties?.type === 'zone'
@@ -225,6 +249,24 @@ export default function MapRenderer({ data }) {
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <button
+        onClick={recenterToData}
+        style={{
+          position: 'absolute',
+          top: 12,
+          right: 12,
+          zIndex: 100,
+          border: '1px solid rgba(255,255,255,0.25)',
+          background: 'rgba(12, 20, 34, 0.8)',
+          color: '#fff',
+          borderRadius: '8px',
+          padding: '6px 10px',
+          cursor: 'pointer',
+          fontSize: '12px',
+        }}
+      >
+        Recenter
+      </button>
       <DeckGL
         layers={layers}
         viewState={viewState}
